@@ -13,8 +13,7 @@ sys.path.append('../gexf')
 
 from gexf import Gexf, GexfImport
 
-ROOTDIR = r'C:\Users\aniello.maiese\Desktop\email-bck\eml'
-
+ROOTDIR = r'EML_FOLDER_PATH'
 
 regex = re.compile(("([a-z0-9!#$%&'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+\/=?^_`"
                     "{|}~-]+)*(@|\sat\s)(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(\.|"
@@ -122,13 +121,10 @@ for f in tqdm(emails_list):
             object_graph.append({"from": meta_from, "to": address, "date": meta_date})
 
 
-gexf = Gexf("Aniello Maiese","Email Works")
+gexf = Gexf("Aniello Maiese","Email Graph")
 graph=gexf.addGraph("directed","dynamic","sample")
 
-
-
 id = 1
-
 nodes = []
 
 for elem in object_graph:
