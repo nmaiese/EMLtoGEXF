@@ -1,41 +1,11 @@
-import email
-import glob
-import os
-from tqdm import tqdm
-from optparse import OptionParser
-import os.path
-import re
-import sys,pprint
+import networkx as nx
+import os, glob, email, re
 import datetime
-import json
 
-sys.path.append('../gexf')
-
-from gexf import Gexf, GexfImport
-
-ROOTDIR = r'EML_FOLDER_PATH'
-
-regex = re.compile(("([a-z0-9!#$%&'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+\/=?^_`"
-                    "{|}~-]+)*(@|\sat\s)(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(\.|"
-                    "\sdot\s))+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)"))
-
-regex_simple = r'[\w\.-]+@[\w\.-]+'
-
-def file_to_str(filename):
-    """Returns the contents of filename as a string."""
-    with open(filename) as f:
-        return f.read().lower() # Case is lowered to prevent regex mismatches.
-
-def get_emails(s):
-    """Returns an iterator of matched emails found in string s."""
-    # Removing lines that start with '//' because the regular expression
-    # mistakenly matches patterns like 'http://foo@bar.com' as '//foo@bar.com'.
-    return (email[0] for email in re.findall(regex, s) if not email[0].startswith('//'))
+email_regex = r'[\w\.-]+@[\w\.-]+'
 
 
-
-
-def caption (origin):
+def caption(origin):
     """Extracts: To, From, Sgraph.addubject and Date from email.Message() or mailbox.Message()
     origin -- Message() object
     Returns tuple(From, To, Subject, Date)
@@ -43,100 +13,103 @@ def caption (origin):
     """
     metadata = {}
 
-    if origin.has_key("date"):
-        metadata = {"date" : origin["date"].strip()}
+    if "date" in origin:
+        metadata = {"date": origin["date"].strip()}
 
-    if origin.has_key("from"):
+    if "from" in origin:
         metadata["from"] = origin["from"].strip()
 
-    if origin.has_key("to"):
+    if "to" in origin:
         metadata["to"] = origin["to"].strip()
 
-    if origin.has_key("cc"):
+    if "cc" in origin:
         metadata["cc"] = origin["cc"].strip()
 
-    if origin.has_key("subject"):
+    if "subject" in origin:
         metadata["subject"] = origin["subject"].strip()
 
     return metadata
 
-def uniq(input):
-  output = []
-  for x in input:
-    if x not in output:
-      output.append(x)
-  return output
+
+def uniqe(input):
+    output = []
+    [output.append(x) for x in input if x not in output]
+    return output
 
 
-email_pattern = os.path.join(ROOTDIR, '*.eml')
-emails = glob.glob(email_pattern)
+def extract_meta_fields_from_email(file):
+    """Extract meta fields from email. Take an eml file as input and extract
+    the "to","from","subject" and "date", field from emails"""
 
-emails_list = []
-for elem in tqdm(emails):
-    f = open(elem,"rb")
-    text = email.message_from_file(f)
-    metadata  = caption(text)
-    emails_list.append(metadata)
+    with open(file, 'r', encoding='ISO-8859-1') as f:
+        text = email.message_from_file(f)
+        return caption(text)
 
 
-object_graph = []
-date_check = []
+def generate_graph_object(fields):
+    object_graph = []
+    date_check = []
 
-for f in tqdm(emails_list):
-
-    if f.has_key("date"):
-        meta_date = datetime.datetime.strptime(f["date"][:-6], "%a, %d %b %Y %H:%M:%S")
-        #meta_date = str(meta_date.year) + "/" + str(meta_date.month) + "/" + str(meta_date.day)
-        meta_date = "{:4d}-{:02d}-{:02d}".format(meta_date.year,meta_date.month,meta_date.day)
-        if meta_date not in date_check:
-            print meta_date
-            date_check.append(meta_date)
-
-    else:
-        meta_date = "EMPTY0"
-
-    if f.has_key("from"):
-        if type(f["from"]) == str:
-            meta_from = re.findall(regex_simple, f["from"])
-            if meta_from != []:
-                meta_from = meta_from[0]
-            else:
-                meta_from = "EMPTY0"
+    for f in fields:
+        if "date" in f:
+            meta_date = datetime.datetime.strptime(f["date"][:-6], "%a, %d %b %Y %H:%M:%S")
+            meta_date = "{:4d}-{:02d}-{:02d}".format(meta_date.year, meta_date.month, meta_date.day)
+            if meta_date not in date_check:
+                date_check.append(meta_date)
 
         else:
-            meta_from = re.findall(regex_simple, f["from"])[0]
-    else:
-        meta_from = "EMPTY0"
+            meta_date = ""
 
-    if f.has_key("to"):
-        meta_to = re.findall(regex_simple, f["to"])
-    else:
-       meta_to = ["EMPTY0"]
-    meta_to = uniq(meta_to)
-    for address in meta_to:
-        object_graph.append({"from": meta_from, "to": address, "date":meta_date})
-    if f.has_key("cc"):
-        meta_cc = re.findall(regex_simple, f["cc"])
-        for address in meta_cc:
+        if "from" in f:
+            if type(f["from"]) == str:
+                meta_from = re.findall(email_regex, f["from"].lower())
+                if meta_from != []:
+                    meta_from = meta_from[0]
+                else:
+                    meta_from = ""
+
+            else:
+                meta_from = re.findall(email_regex, f["from"].lower())[0]
+        else:
+            meta_from = ""
+
+        if "to" in f:
+            meta_to = re.findall(email_regex, f["to"].lower())
+        else:
+            meta_to = [""]
+
+        meta_to = uniqe(meta_to)
+
+        for address in meta_to:
             object_graph.append({"from": meta_from, "to": address, "date": meta_date})
 
+        if "cc" in f:
+            meta_cc = re.findall(email_regex, f["cc"].lower())
+            for address in meta_cc:
+                object_graph.append({"from": meta_from, "to": address, "date": meta_date})
 
-gexf = Gexf("Aniello Maiese","Email Graph")
-graph=gexf.addGraph("directed","dynamic","sample")
+    return object_graph
 
-id = 1
-nodes = []
 
-for elem in object_graph:
-    if elem["from"] not in nodes:
-        graph.addNode(elem["from"],elem["from"],elem["date"])
-        nodes.append(elem["from"])
-    if elem["to"] not in nodes:
-        graph.addNode(elem["to"], elem["to"],elem["date"])
-        nodes.append(elem["to"])
-    graph.addEdge(id, elem["from"],elem["to"],1,elem["date"])
-    id += 1
+# path of EML files folder
+dir_path = "/Users/aniello.maiese/Desktop/MEC/Old Desktop/email-bck/eml"
 
-output_file = open("myemail_dynamics_connections.gexf", "w")
-gexf.write(output_file)
+# collect all emails in a list
+email_pattern = os.path.join(dir_path, '*.eml')
+emails = glob.glob(email_pattern)
+
+# extract fields
+meta_fields = [extract_meta_fields_from_email(x) for x in emails]
+
+# generate graph object
+graph = generate_graph_object(meta_fields)
+
+G = nx.MultiDiGraph()
+
+# add edges
+for i, c in enumerate(graph):
+    G.add_edge(u=c['from'], v=c['to'], weight=1, key=i, date=c['date'])
+
+# write output
+nx.write_gexf(G, 'my_emails.gexf')
 
